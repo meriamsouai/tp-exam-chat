@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat en temps réel</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>💬 Chat en temps réel</h1>
+        </div>
+
+        <div class="pseudo-section">
+            <div class="pseudo-input" id="pseudoInputContainer">
+                <input type="text" id="pseudoInput" placeholder="Entrez votre pseudo" maxlength="20">
+                <button onclick="setPseudo()" id="validatePseudoBtn">Valider</button>
+            </div>
+            <div id="pseudoDisplay">
+                <span>Pseudo: <span id="currentPseudoDisplay"></span></span>
+                <button onclick="editPseudo()">Modifier</button>
+            </div>
+        </div>
+
+        <div class="messages-container" id="messagesContainer">
+            <div class="status">Chargement des messages...</div>
+        </div>
+
+        <div class="input-section disabled" id="inputSection">
+            <div class="message-input">
+                <input type="text" id="messageInput" placeholder="Tapez votre message..." maxlength="500">
+                <button onclick="sendMessage()" id="sendButton">Envoyer</button>
+            </div>
+            <div class="status" id="status"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentPseudo = '';
+        let refreshInterval = null;
+
+        // Configuration de l'URL de l'API
+        // En production, utiliser l'URL Render du backend
+        // Remplacez cette URL par votre URL Render réelle après déploiement
+        const BACKEND_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+            ? 'http://localhost:3000' 
+            : 'https://tp-exam-chat-backend-bvyv.onrender.com';
+
+        function setPseudo() {
+            const pseudoInput = document.getElementById('pseudoInput');
+            const pseudo = pseudoInput.value.trim();
+            
+            if (!pseudo) {
+                alert('Veuillez entrer un pseudo');
+                return;
+            }
+            
+            currentPseudo = pseudo;
+            
+            // Masquer le champ de saisie et afficher le pseudo
+            document.getElementById('pseudoInputContainer').style.display = 'none';
+            document.getElementById('pseudoDisplay').style.display = 'block';
+            document.getElementById('currentPseudoDisplay').textContent = pseudo;
+            
+            document.getElementById('inputSection').classList.remove('disabled');
+            document.getElementById('messageInput').focus();
+            
+            loadMessages();
+            startAutoRefresh();
+        }
+
+        function editPseudo() {
+            // Réafficher le champ de saisie
+            document.getElementById('pseudoInputContainer').style.display = 'flex';
+            document.getElementById('pseudoDisplay').style.display = 'none';
+            document.getElementById('pseudoInput').value = currentPseudo;
+            document.getElementById('pseudoInput').focus();
+            document.getElementById('pseudoInput').select();
+        }
+
+        function startAutoRefresh() {
+            // Refresh toutes les 4 secondes
+            if (refreshInterval) clearInterval(refreshInterval);
+            refreshInterval = setInterval(loadMessages, 4000);
+        }
+
+        async function loadMessages() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/messages`);
+                if (!response.ok) throw new Error('Erreur de chargement');
+                
+                const messages = await response.json();
+                displayMessages(messages);
+                document.getElementById('status').textContent = '';
+            } catch (error) {
+                console.error('Erreur:', error);
+                document.getElementById('status').textContent = 'Erreur de connexion au serveur';
+                document.getElementById('status').className = 'status error';
+            }
+        }
+
+        function displayMessages(messages) {
+            const container = document.getElementById('messagesContainer');
+            
+            if (messages.length === 0) {
+                container.innerHTML = '<div class="status">Aucun message pour le moment. Soyez le premier !</div>';
+                return;
+            }
+            
+            container.innerHTML = messages.map(msg => {
+                const date = new Date(msg.timestamp);
+                const time = date.toLocaleTimeString('fr-FR', { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                });
+                
+                return `
+                    <div class="message">
+                        <div class="message-header">
+                            <span class="message-author">${escapeHtml(msg.author)}</span>
+                            <span class="message-time">${time}</span>
+                        </div>
+                        <div class="message-content">${escapeHtml(msg.content)}</div>
+                    </div>
+                `;
+            }).join('');
+            
+            // Scroll vers le bas
+            container.scrollTop = container.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const content = messageInput.value.trim();
+            
+            if (!content) {
+                alert('Veuillez entrer un message');
+                return;
+            }
+            
+            if (!currentPseudo) {
+                alert('Veuillez d\'abord définir votre pseudo');
+                return;
+            }
+            
+            const sendButton = document.getElementById('sendButton');
+            sendButton.disabled = true;
+            document.getElementById('status').textContent = 'Envoi en cours...';
+            
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        author: currentPseudo,
+                        content: content
+                    })
+                });
+                
+                if (!response.ok) throw new Error('Erreur d\'envoi');
+                
+                messageInput.value = '';
+                document.getElementById('status').textContent = '';
+                
+                // Recharger les messages immédiatement
+                await loadMessages();
+            } catch (error) {
+                console.error('Erreur:', error);
+                document.getElementById('status').textContent = 'Erreur lors de l\'envoi';
+                document.getElementById('status').className = 'status error';
+            } finally {
+                sendButton.disabled = false;
+                messageInput.focus();
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Permettre l'envoi avec Enter
+        document.getElementById('messageInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        document.getElementById('pseudoInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                setPseudo();
+            }
+        });
+
+        // Charger les messages au démarrage
+        loadMessages();
+    </script>
+</body>
+</html>
+
